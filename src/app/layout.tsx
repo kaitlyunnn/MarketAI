@@ -16,6 +16,11 @@ export const metadata: Metadata = {
   title: "MarketAI",
   description:
     "MarketAI helps ecommerce sellers find products worth testing by ranking opportunities across trend, profit, and competition.",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({

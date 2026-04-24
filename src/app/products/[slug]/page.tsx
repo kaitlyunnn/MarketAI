@@ -18,6 +18,8 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<ProductOpportunity | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -39,7 +41,7 @@ export default function ProductDetailPage() {
       const { data, error: supabaseError } = await supabase
         .from("products")
         .select(
-          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score",
+          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score, ai_summary",
         );
 
       if (!isMounted) {
@@ -75,26 +77,78 @@ export default function ProductDetailPage() {
     };
   }, [params.slug]);
 
+  async function handleGenerateSummary() {
+    if (!product) {
+      return;
+    }
+
+    if (product.aiSummary) {
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryError(null);
+
+    try {
+      const response = await fetch("/api/generate-summary", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ product }),
+      });
+
+      const payload = (await response.json()) as {
+        summary?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.summary) {
+        throw new Error(payload.error ?? "Failed to generate AI summary.");
+      }
+
+      const supabase = createClient();
+
+      if (!supabase) {
+        throw new Error(
+          "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
+        );
+      }
+
+      const { error: updateError } = await supabase
+        .from("products")
+        .update({ ai_summary: payload.summary })
+        .eq("product_name", product.productName);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      setProduct({
+        ...product,
+        aiSummary: payload.summary,
+      });
+    } catch (generationError) {
+      setSummaryError(
+        generationError instanceof Error
+          ? generationError.message
+          : "Failed to generate AI summary.",
+      );
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <section className="mx-auto max-w-5xl px-6 pb-12 pt-6 sm:px-10 lg:px-12">
-        <div className="rounded-full border border-white/60 bg-white/65 px-4 py-3 shadow-[0_10px_30px_rgba(55,39,16,0.08)] backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
-                MA
-              </div>
-              <p className="text-lg font-semibold tracking-[-0.03em] text-[var(--ink)]">
-                MarketAI
-              </p>
-            </div>
-            <Link
-              href="/"
-              className="text-sm font-medium text-black/65 transition hover:text-black"
-            >
-              Back to products
-            </Link>
-          </div>
+        <div className="flex justify-end">
+          <Link
+            href="/"
+            className="inline-flex items-center rounded-full border border-[var(--line)] bg-white px-5 py-3 text-sm font-semibold text-[var(--ink)] shadow-[0_10px_30px_rgba(55,39,16,0.08)] transition hover:bg-[var(--soft)]"
+          >
+            Back to products
+          </Link>
         </div>
 
         {loading ? (
@@ -222,20 +276,33 @@ export default function ProductDetailPage() {
 
             <section className="mt-8 rounded-[1.75rem] border border-[var(--line)] bg-white/85 p-6 shadow-[0_22px_60px_rgba(49,33,10,0.08)]">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
-                AI summary placeholder
+                AI summary
               </p>
-              <p className="mt-4 text-base leading-8 text-black/65">
-                This product shows a{" "}
-                <span className="font-semibold text-black">
-                  {getCompetitionLabel(product.competitionScore).toLowerCase()}
-                </span>{" "}
-                competition profile with a current margin of{" "}
-                <span className="font-semibold text-black">
-                  {formatCurrency(product.profitMargin)}
-                </span>
-                . A future AI summary can explain why this product is promising,
-                what risks to watch, and what creative angles to test first.
-              </p>
+              {product.aiSummary ? (
+                <div className="mt-4 whitespace-pre-wrap text-base leading-8 text-black/65">
+                  {product.aiSummary}
+                </div>
+              ) : (
+                <>
+                  <p className="mt-4 text-base leading-8 text-black/65">
+                    Generate a short AI summary with pros, cons, target audience,
+                    and a final recommendation for this product opportunity.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleGenerateSummary}
+                    disabled={summaryLoading}
+                    className="mt-5 rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {summaryLoading ? "Generating summary..." : "Generate AI Summary"}
+                  </button>
+                </>
+              )}
+              {summaryError ? (
+                <p className="mt-4 text-sm leading-6 text-red-700">
+                  {summaryError}
+                </p>
+              ) : null}
             </section>
           </>
         ) : null}

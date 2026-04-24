@@ -5,6 +5,7 @@ export type ProductRow = {
   competition_count: number | string | null;
   tiktok_mentions: number | string | null;
   google_trends_score: number | string | null;
+  ai_summary?: string | null;
 };
 
 export type ProductOpportunity = {
@@ -16,6 +17,7 @@ export type ProductOpportunity = {
   competitionCount: number;
   tiktokMentions: number;
   googleTrendsScore: number;
+  aiSummary: string | null;
   profitMargin: number;
   trendScore: number;
   rawTrendScore: number;
@@ -95,6 +97,7 @@ export function buildOpportunities(rows: ProductRow[]) {
       competitionCount,
       tiktokMentions,
       googleTrendsScore,
+      aiSummary: row.ai_summary ?? null,
       profitMargin: amazonPrice - supplierPrice,
       rawTrendScore: tiktokMentions + googleTrendsScore,
     };

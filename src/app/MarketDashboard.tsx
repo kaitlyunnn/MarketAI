@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -19,11 +20,13 @@ type SortOption =
   | "most-trending";
 
 export default function MarketDashboard() {
+  const productsPerPage = 10;
   const [products, setProducts] = useState<ProductOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("opportunity");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     let isMounted = true;
@@ -46,7 +49,7 @@ export default function MarketDashboard() {
       const { data, error: supabaseError } = await supabase
         .from("products")
         .select(
-          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score",
+          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score, ai_summary",
         );
 
       if (!isMounted) {
@@ -89,6 +92,16 @@ export default function MarketDashboard() {
           return b.opportunityScore - a.opportunityScore;
       }
     });
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredProducts.length / productsPerPage),
+  );
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedProducts = filteredProducts.slice(
+    (safeCurrentPage - 1) * productsPerPage,
+    safeCurrentPage * productsPerPage,
+  );
+  const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
 
   const topThree = filteredProducts.slice(0, 3);
   const bestProduct = topThree[0];
@@ -106,19 +119,33 @@ export default function MarketDashboard() {
 
   return (
     <main className="min-h-screen">
-      <section className="mx-auto max-w-7xl px-6 pb-12 pt-6 sm:px-10 lg:px-12">
-        <div className="rounded-full border border-white/60 bg-white/65 px-4 py-3 shadow-[0_10px_30px_rgba(55,39,16,0.08)] backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-black/6 bg-[rgba(252,248,241,0.84)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 sm:px-10 lg:px-12">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
-              MA
+            <div className="overflow-hidden rounded-xl shadow-[0_12px_24px_rgba(27,26,24,0.18)]">
+              <Image
+                src="/marketai-logo.png"
+                alt="MarketAI logo"
+                width={44}
+                height={44}
+                className="h-11 w-11 object-cover"
+                priority
+              />
             </div>
-            <p className="text-lg font-semibold tracking-[-0.03em] text-[var(--ink)]">
-              MarketAI
-            </p>
+            <div>
+              <p className="text-lg font-semibold tracking-[-0.03em] text-[var(--ink)]">
+                MarketAI
+              </p>
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                Product research
+              </p>
+            </div>
           </div>
         </div>
+      </header>
 
-        <section className="relative mt-6 overflow-hidden rounded-[2rem] border border-white/55 bg-[var(--panel)] px-6 py-10 shadow-[0_30px_80px_rgba(59,40,13,0.12)] sm:px-10 lg:px-12 lg:py-14">
+      <section className="mx-auto max-w-7xl px-6 pb-12 pt-6 sm:px-10 lg:px-12">
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/55 bg-[var(--panel)] px-6 py-10 shadow-[0_30px_80px_rgba(59,40,13,0.12)] sm:px-10 lg:px-12 lg:py-14">
           <div className="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top_right,_rgba(241,171,76,0.28),_transparent_45%)]" />
           <div className="relative grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
             <div className="space-y-7">
@@ -127,11 +154,11 @@ export default function MarketDashboard() {
               </p>
               <div className="space-y-5">
                 <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.05em] text-balance sm:text-6xl lg:text-7xl">
-                  Find ecommerce products worth testing before everyone else does.
+                  Find winning ecommerce products before the market catches on.
                 </h1>
                 <p className="max-w-3xl text-lg leading-8 text-black/68 sm:text-xl">
                   MarketAI helps ecommerce sellers stop guessing. It ranks
-                  products by trend, profit, and competition so users can
+                  products by virality, profit, and competition so users can
                   quickly find products worth testing.
                 </p>
               </div>
@@ -178,7 +205,7 @@ export default function MarketDashboard() {
 
             <aside className="rounded-[1.75rem] bg-[var(--ink)] p-6 text-white shadow-[0_30px_90px_rgba(19,18,17,0.28)]">
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/55">
-                This Week&apos;s Best Bet
+                This Week&apos;s Winning Product
               </p>
               <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/6 p-6">
                 {loading ? (
@@ -192,7 +219,7 @@ export default function MarketDashboard() {
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="text-sm text-white/58">
-                          Opportunity leader
+                          Highest opportunity
                         </p>
                         <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
                           {bestProduct.productName}
@@ -263,15 +290,14 @@ export default function MarketDashboard() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-                Top 3 Opportunities Right Now
+                Best Opportunities Right Now
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
-                The strongest products to test first
+                Top 3 Trending Products
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-black/60">
-              Ranked using your in-app scoring formula for trend, profit margin,
-              and low competition.
+              Ranked by profit potential, competition, and real-time demand signals.
             </p>
           </div>
 
@@ -364,7 +390,7 @@ export default function MarketDashboard() {
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-black/60">
-              Live products from Supabase, sorted by opportunity score.
+              Click on a product to view its expanded details page
             </p>
           </div>
 
@@ -375,7 +401,10 @@ export default function MarketDashboard() {
               </span>
               <input
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setCurrentPage(1);
+                }}
                 placeholder="Search products..."
                 className="mt-2 w-full bg-transparent text-sm text-black outline-none placeholder:text-black/35"
               />
@@ -387,9 +416,10 @@ export default function MarketDashboard() {
               </span>
               <select
                 value={sortOption}
-                onChange={(event) =>
-                  setSortOption(event.target.value as SortOption)
-                }
+                onChange={(event) => {
+                  setSortOption(event.target.value as SortOption);
+                  setCurrentPage(1);
+                }}
                 className="mt-2 w-full bg-transparent text-sm text-black outline-none"
               >
                 <option value="opportunity">Best overall opportunity</option>
@@ -410,72 +440,115 @@ export default function MarketDashboard() {
               ))}
             </div>
           ) : filteredProducts.length ? (
-            <div className="mt-8 overflow-hidden rounded-[1.5rem] border border-[var(--line)]">
-              <div className="hidden grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] gap-4 bg-[var(--soft)] px-5 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)] md:grid">
-                <span>Rank</span>
-                <span>Product</span>
-                <span>Margin</span>
-                <span>Trend</span>
-                <span>Competition</span>
-                <span>Opportunity</span>
-              </div>
+            <>
+              <div className="mt-8 overflow-hidden rounded-[1.5rem] border border-[var(--line)]">
+                <div className="hidden grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] gap-4 bg-[var(--soft)] px-5 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)] md:grid">
+                  <span>Rank</span>
+                  <span>Product</span>
+                  <span>Margin</span>
+                  <span>Trend</span>
+                  <span>Competition</span>
+                  <span>Opportunity</span>
+                </div>
 
-              <div className="divide-y divide-[var(--line)] bg-white/85">
-                {filteredProducts.map((product, index) => (
-                  <Link
-                    key={product.id}
-                    href={`/products/${product.slug}`}
-                    className="grid gap-4 px-5 py-5 md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
-                        {index + 1}
+                <div className="divide-y divide-[var(--line)] bg-white/85">
+                  {paginatedProducts.map((product, index) => (
+                    <Link
+                      key={product.id}
+                      href={`/products/${product.slug}`}
+                      className="grid gap-4 px-5 py-5 md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
+                          {(safeCurrentPage - 1) * productsPerPage + index + 1}
+                        </div>
                       </div>
-                    </div>
 
-                    <div>
-                      <h3 className="text-lg font-semibold tracking-[-0.03em]">
-                        {product.productName}
-                      </h3>
-                      <p className="mt-2 text-sm leading-6 text-black/60">
-                        Amazon {formatCurrency(product.amazonPrice)} - Supplier{" "}
-                        {formatCurrency(product.supplierPrice)}
-                      </p>
-                      <p className="mt-3 text-sm font-medium text-black/70 md:hidden">
-                        Trend: {formatScore(product.trendScore)} - Opportunity:{" "}
-                        {formatScore(product.opportunityScore)}
-                      </p>
-                    </div>
+                      <div>
+                        <h3 className="text-lg font-semibold tracking-[-0.03em]">
+                          {product.productName}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-black/60">
+                          Amazon {formatCurrency(product.amazonPrice)} - Supplier{" "}
+                          {formatCurrency(product.supplierPrice)}
+                        </p>
+                        <p className="mt-3 text-sm font-medium text-black/70 md:hidden">
+                          Trend: {formatScore(product.trendScore)} - Opportunity:{" "}
+                          {formatScore(product.opportunityScore)}
+                        </p>
+                      </div>
 
-                    <div className="text-sm text-black/68">
-                      <p className="font-semibold text-black md:hidden">Margin</p>
-                      <p>{formatCurrency(product.profitMargin)}</p>
-                    </div>
+                      <div className="text-sm text-black/68">
+                        <p className="font-semibold text-black md:hidden">Margin</p>
+                        <p>{formatCurrency(product.profitMargin)}</p>
+                      </div>
 
-                    <div className="text-sm text-black/68">
-                      <p className="font-semibold text-black md:hidden">Trend</p>
-                      <p>{formatScore(product.trendScore)}</p>
-                    </div>
+                      <div className="text-sm text-black/68">
+                        <p className="font-semibold text-black md:hidden">Trend</p>
+                        <p>{formatScore(product.trendScore)}</p>
+                      </div>
 
-                    <div className="text-sm text-black/68">
-                      <p className="font-semibold text-black md:hidden">
-                        Competition
-                      </p>
-                      <p>{getCompetitionLabel(product.competitionScore)}</p>
-                    </div>
+                      <div className="text-sm text-black/68">
+                        <p className="font-semibold text-black md:hidden">
+                          Competition
+                        </p>
+                        <p>{getCompetitionLabel(product.competitionScore)}</p>
+                      </div>
 
-                    <div className="text-sm text-black/68">
-                      <p className="font-semibold text-black md:hidden">
-                        Opportunity
-                      </p>
-                      <p className="font-semibold text-black">
-                        {formatScore(product.opportunityScore)}
-                      </p>
-                    </div>
-                  </Link>
-                ))}
+                      <div className="text-sm text-black/68">
+                        <p className="font-semibold text-black md:hidden">
+                          Opportunity
+                        </p>
+                        <p className="font-semibold text-black">
+                          {formatScore(product.opportunityScore)}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+                <div className="text-sm text-black/55">
+                  Page {safeCurrentPage} of {totalPages}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCurrentPage((page) => Math.max(1, page - 1))
+                    }
+                    disabled={safeCurrentPage === 1}
+                    className="rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-medium text-[var(--ink)] transition hover:bg-[var(--soft)] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Previous
+                  </button>
+                  {pageNumbers.map((pageNumber) => (
+                    <button
+                      key={pageNumber}
+                      type="button"
+                      onClick={() => setCurrentPage(pageNumber)}
+                      className={`h-10 min-w-10 rounded-full px-3 text-sm font-medium transition ${
+                        pageNumber === safeCurrentPage
+                          ? "bg-[var(--ink)] text-white"
+                          : "border border-[var(--line)] bg-white text-[var(--ink)] hover:bg-[var(--soft)]"
+                      }`}
+                    >
+                      {pageNumber}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCurrentPage((page) => Math.min(totalPages, page + 1))
+                    }
+                    disabled={safeCurrentPage === totalPages}
+                    className="rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-medium text-[var(--ink)] transition hover:bg-[var(--soft)] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
           ) : products.length ? (
             <div className="mt-8 rounded-[1.5rem] border border-[var(--line)] bg-white/80 p-6 text-sm leading-7 text-black/65">
               No products match your current search or filter.
