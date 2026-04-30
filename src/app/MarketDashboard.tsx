@@ -156,6 +156,8 @@ export default function MarketDashboard() {
       return;
     }
 
+    const activeSupabase = supabase;
+
     const checkoutState = searchParams.get("checkout");
 
     if (checkoutState !== "success") {
@@ -174,7 +176,8 @@ export default function MarketDashboard() {
       while (isMounted && attempts < maxAttempts) {
         attempts += 1;
 
-        const { data, error: refreshError } = await supabase.auth.refreshSession();
+        const { data, error: refreshError } =
+          await activeSupabase.auth.refreshSession();
 
         if (!isMounted) {
           return;
