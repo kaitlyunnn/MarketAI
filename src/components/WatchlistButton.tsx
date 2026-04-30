@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addToWatchlist,
   FREE_WATCHLIST_LIMIT,
+  PRO_WATCHLIST_LIMIT,
   getWatchlist,
   getWatchlistLimit,
   removeFromWatchlist,
@@ -103,7 +104,7 @@ export default function WatchlistButton({
 
       if (!isSaved && nextWatchlist.length > getWatchlistLimit(activeUser)) {
         throw new Error(
-          `Free plans can save up to ${FREE_WATCHLIST_LIMIT} products. Pro plans will support larger watchlists.`,
+          `Free plans can save up to ${FREE_WATCHLIST_LIMIT} products. Pro plans can save up to ${PRO_WATCHLIST_LIMIT} products.`,
         );
       }
 

@@ -21,6 +21,7 @@ export default function AuthPageClient() {
   const mode = useMemo<AuthMode>(() => {
     return searchParams.get("mode") === "signup" ? "signup" : "login";
   }, [searchParams]);
+  const authReason = searchParams.get("reason");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,6 +55,12 @@ export default function AuthPageClient() {
           ? await supabase.auth.signUp({
               email,
               password,
+              options: {
+                data: {
+                  plan: "free",
+                  watchlist: [],
+                },
+              },
             })
           : await supabase.auth.signInWithPassword({
               email,
@@ -117,6 +124,13 @@ export default function AuthPageClient() {
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--ink)]">
               {mode === "signup" ? "Sign up" : "Log in"}
             </h2>
+
+            {authReason === "pro-purchase" ? (
+              <div className="mt-5 rounded-[1.25rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                You need to sign up or log in before purchasing the MarketAI Pro
+                plan.
+              </div>
+            ) : null}
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <label className="block rounded-[1.25rem] border border-[var(--line)] bg-white/85 px-4 py-3">
