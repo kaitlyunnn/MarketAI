@@ -1,11 +1,15 @@
 "use client";
 
-import AuthStatusNotice from "@/components/AuthStatusNotice";
+import { type User } from "@supabase/supabase-js";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import AppHeader from "@/components/AppHeader";
+import AuthStatusNotice from "@/components/AuthStatusNotice";
+import { getAccessibleProductsTable, isProUser } from "@/lib/account";
 import {
+  PRODUCT_SELECT_FIELDS,
   buildOpportunities,
   formatCurrency,
   formatScore,
@@ -53,15 +57,56 @@ function getProductInsight(product: ProductOpportunity) {
 }
 
 export default function MarketDashboard() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const productsPerPage = 10;
+  const [supabase] = useState(() => createClient());
+  const [user, setUser] = useState<User | null>(null);
   const [products, setProducts] = useState<ProductOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [checkoutProcessing, setCheckoutProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("opportunity");
   const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
+    let isMounted = true;
+
+    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (sessionError) {
+        setCheckoutError(sessionError.message);
+        return;
+      }
+
+      setUser(data.session?.user ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   useEffect(() => {
     let isMounted = true;
@@ -69,8 +114,6 @@ export default function MarketDashboard() {
     async function fetchProducts() {
       setLoading(true);
       setError(null);
-
-      const supabase = createClient();
 
       if (!supabase) {
         setError(
@@ -81,11 +124,10 @@ export default function MarketDashboard() {
         return;
       }
 
+      const productsTable = getAccessibleProductsTable(user);
       const { data, error: supabaseError } = await supabase
-        .from("products")
-        .select(
-          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score, ai_summary",
-        );
+        .from(productsTable)
+        .select(PRODUCT_SELECT_FIELDS);
 
       if (!isMounted) {
         return;
@@ -107,15 +149,114 @@ export default function MarketDashboard() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [supabase, user]);
+
+  useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
+    const activeSupabase = supabase;
+
+    const checkoutState = searchParams.get("checkout");
+
+    if (checkoutState !== "success") {
+      setCheckoutProcessing(false);
+      return;
+    }
+
+    let isMounted = true;
+    let attempts = 0;
+    const maxAttempts = 8;
+
+    async function waitForWebhookUpgrade() {
+      setCheckoutProcessing(true);
+      setCheckoutError(null);
+
+      while (isMounted && attempts < maxAttempts) {
+        attempts += 1;
+
+        const { data, error: refreshError } =
+          await activeSupabase.auth.refreshSession();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (refreshError) {
+          setCheckoutError(refreshError.message);
+          setCheckoutProcessing(false);
+          return;
+        }
+
+        const refreshedUser = data.session?.user ?? null;
+        setUser(refreshedUser);
+
+        if (isProUser(refreshedUser)) {
+          setCheckoutProcessing(false);
+          router.replace("/?auth=upgraded");
+          router.refresh();
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      setCheckoutProcessing(false);
+      setCheckoutError(
+        "Your payment went through, but your Pro access is still syncing. Refresh in a moment if it does not appear automatically.",
+      );
+    }
+
+    void waitForWebhookUpgrade();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router, searchParams, supabase]);
 
   async function handleCheckout() {
-    setCheckoutLoading(true);
-    setCheckoutError(null);
+    if (!supabase) {
+      setCheckoutError(
+        "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
+      );
+      return;
+    }
 
     try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      const activeUser = sessionData.session?.user ?? null;
+
+      if (!activeUser?.email) {
+        setCheckoutError(
+          "You need to sign up or log in before purchasing the MarketAI Pro plan.",
+        );
+        router.push("/auth?mode=signup&reason=pro-purchase");
+        return;
+      }
+
+      setCheckoutLoading(true);
+      setCheckoutError(null);
+
       const response = await fetch("/api/checkout", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: activeUser.email,
+          userId: activeUser.id,
+        }),
       });
 
       const text = await response.text();
@@ -131,8 +272,7 @@ export default function MarketDashboard() {
 
       if (!response.ok) {
         throw new Error(
-          body?.error ||
-            `Checkout request failed with status ${response.status}`,
+          body?.error || `Checkout request failed with status ${response.status}`,
         );
       }
 
@@ -141,9 +281,9 @@ export default function MarketDashboard() {
       }
 
       window.location.href = body.url;
-    } catch (error) {
+    } catch (purchaseError) {
       setCheckoutError(
-        error instanceof Error ? error.message : "Checkout failed.",
+        purchaseError instanceof Error ? purchaseError.message : "Checkout failed.",
       );
     } finally {
       setCheckoutLoading(false);
@@ -168,6 +308,7 @@ export default function MarketDashboard() {
           return b.opportunityScore - a.opportunityScore;
       }
     });
+
   const totalPages = Math.max(
     1,
     Math.ceil(filteredProducts.length / productsPerPage),
@@ -184,6 +325,9 @@ export default function MarketDashboard() {
 
   const topThree = filteredProducts.slice(0, 3);
   const bestProduct = topThree[0];
+  const isProMember = isProUser(user);
+  const activeProductsTable = getAccessibleProductsTable(user);
+
   return (
     <main className="min-h-screen">
       <AppHeader />
@@ -211,16 +355,19 @@ export default function MarketDashboard() {
                   <button
                     type="button"
                     onClick={handleCheckout}
-                    disabled={checkoutLoading}
+                    disabled={checkoutLoading || checkoutProcessing || isProMember}
                     className="inline-flex items-center justify-center rounded-full bg-[var(--ink)] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {checkoutLoading
-                      ? "Preparing checkout..."
-                      : "Upgrade to MarketAI Pro – $19.99"}
+                    {isProMember
+                      ? "Pro plan active"
+                      : checkoutLoading || checkoutProcessing
+                        ? "Preparing checkout..."
+                        : "Upgrade to MarketAI Pro - $6.99/month"}
                   </button>
                   <p className="text-sm text-black/70">
-                    Secure one-time checkout powered by Stripe. You can review
-                    payment details before completing purchase.
+                    {isProMember
+                      ? "Your account already has Pro access, including the expanded product library."
+                      : "Sign in first, then complete your secure Stripe checkout to unlock Pro access."}
                   </p>
                 </div>
 
@@ -362,7 +509,7 @@ export default function MarketDashboard() {
             <p className="mt-2 text-sm leading-6 text-red-800/80">
               Check your `NEXT_PUBLIC_SUPABASE_URL`,
               `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and table permissions for
-              `products`.
+              `{activeProductsTable}`.
             </p>
           </section>
         ) : null}
@@ -453,8 +600,8 @@ export default function MarketDashboard() {
             </div>
           ) : (
             <div className="mt-6 rounded-[1.75rem] border border-[var(--line)] bg-white/80 p-6 text-sm leading-7 text-black/65">
-              No ranked opportunities yet. Add rows to the Supabase `products`
-              table and they will appear here.
+              No ranked opportunities yet. Add rows to the Supabase
+              `{activeProductsTable}` table and they will appear here.
             </div>
           )}
 
@@ -468,23 +615,25 @@ export default function MarketDashboard() {
                     MarketAI Pro
                   </p>
                   <p className="text-sm font-medium text-black/58">
-                    Monthly recurring purchase
+                    {isProMember ? "Pro plan active" : "Monthly recurring purchase"}
                   </p>
                 </div>
                 <div className="space-y-3">
                   <h3 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] text-[var(--ink)] sm:text-4xl">
-                    Unlock the full product library for $6.99 per month
+                    {isProMember
+                      ? "Your Pro plan unlocks the expanded product library"
+                      : "Unlock the full product library for $6.99 per month"}
                   </h3>
                   <p className="max-w-2xl text-sm leading-7 text-black/68 sm:text-base">
-                    Get deeper access to MarketAI with a polished Pro upgrade
-                    built for sellers who want more ideas, more saves, and a
-                    head start on what is working next.
+                    {isProMember
+                      ? "You now see the expanded ProProducts catalog and can save up to 10 products to your watchlist."
+                      : "Get deeper access to MarketAI with a polished Pro upgrade built for sellers who want more ideas, more saves, and a head start on what is working next."}
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
                     "Full product library access",
-                    "Expanded wishlist capacity",
+                    "Watchlist limit increased to 10",
                     "Early access to ecommerce product case studies",
                   ].map((benefit) => (
                     <div
@@ -504,7 +653,7 @@ export default function MarketDashboard() {
 
               <div className="relative rounded-[1.75rem] border border-[var(--line)] bg-[var(--ink)] p-6 text-white shadow-[0_24px_70px_rgba(27,26,24,0.24)] sm:p-7 lg:max-w-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/55">
-                  Upgrade today
+                  {isProMember ? "Plan status" : "Upgrade today"}
                 </p>
                 <div className="mt-4 flex items-end gap-2">
                   <span className="text-4xl font-semibold tracking-[-0.05em]">
@@ -513,19 +662,26 @@ export default function MarketDashboard() {
                   <span className="pb-1 text-sm text-white/55">monthly</span>
                 </div>
                 <p className="mt-4 text-sm leading-6 text-white/72">
-                  Secure Stripe checkout. Review your payment details before you
-                  complete the purchase.
+                  {isProMember
+                    ? "Your account is already on Pro."
+                    : "You must be signed in before purchase. Stripe checkout starts after login."}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleCheckout}
-                  disabled={checkoutLoading}
-                  className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--highlight)] px-6 py-3.5 text-sm font-semibold text-[var(--ink)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(243,201,134,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {checkoutLoading
-                    ? "Preparing checkout..."
-                    : "Start Pro Subscription"}
-                </button>
+                {isProMember ? (
+                  <div className="mt-6 inline-flex w-full items-center justify-center rounded-full border border-white/15 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white/85">
+                    Pro plan active
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCheckout}
+                    disabled={checkoutLoading || checkoutProcessing}
+                    className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--highlight)] px-6 py-3.5 text-sm font-semibold text-[var(--ink)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(243,201,134,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {checkoutLoading || checkoutProcessing
+                      ? "Preparing checkout..."
+                      : "Start Pro Subscription"}
+                  </button>
+                )}
 
                 {checkoutError ? (
                   <p className="mt-4 rounded-2xl border border-red-300/30 bg-red-50 px-4 py-3 text-sm leading-6 text-red-900">
@@ -548,7 +704,9 @@ export default function MarketDashboard() {
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-black/60">
-              Click on a product to view its expanded details page
+              {isProMember
+                ? "You are viewing the expanded ProProducts library."
+                : "Click on a product to view its expanded details page"}
             </p>
           </div>
 
@@ -627,12 +785,12 @@ export default function MarketDashboard() {
                           {product.productName}
                         </h3>
                         <p className="mt-2 text-sm leading-6 text-black/60">
-                          Amazon {formatCurrency(product.amazonPrice)} -
-                          Supplier {formatCurrency(product.supplierPrice)}
+                          Amazon {formatCurrency(product.amazonPrice)} - Supplier{" "}
+                          {formatCurrency(product.supplierPrice)}
                         </p>
                         <p className="mt-3 text-sm font-medium text-black/70 md:hidden">
-                          Trend: {formatScore(product.trendScore)} -
-                          Opportunity: {formatScore(product.opportunityScore)}
+                          Trend: {formatScore(product.trendScore)} - Opportunity:{" "}
+                          {formatScore(product.opportunityScore)}
                         </p>
                       </div>
 
@@ -717,7 +875,8 @@ export default function MarketDashboard() {
             </div>
           ) : (
             <div className="mt-8 rounded-[1.5rem] border border-[var(--line)] bg-white/80 p-6 text-sm leading-7 text-black/65">
-              The `products` table is reachable, but it returned no rows.
+              The `{activeProductsTable}` table is reachable, but it returned no
+              rows.
             </div>
           )}
         </section>
