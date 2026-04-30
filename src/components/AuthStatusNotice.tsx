@@ -19,5 +19,47 @@ export default function AuthStatusNotice() {
     );
   }
 
+  if (authState === "upgraded") {
+    return (
+      <section className="mt-8 rounded-[1.75rem] border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-[0_12px_40px_rgba(166,118,18,0.12)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-amber-900/70">
+          Pro unlocked
+        </p>
+        <p className="mt-2 text-sm leading-6 text-amber-950/85">
+          Your Pro plan is active. You now have the larger watchlist and access
+          to the expanded product library.
+        </p>
+      </section>
+    );
+  }
+
+  if (searchParams.get("checkout") === "success") {
+    return (
+      <section className="mt-8 rounded-[1.75rem] border border-[var(--line)] bg-white/80 p-5 text-[var(--ink)] shadow-[0_12px_40px_rgba(55,39,16,0.06)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+          Processing upgrade
+        </p>
+        <p className="mt-2 text-sm leading-6 text-black/68">
+          Your payment was submitted. We&apos;re refreshing your account and
+          waiting for Stripe to confirm Pro access.
+        </p>
+      </section>
+    );
+  }
+
+  if (authState === "canceled") {
+    return (
+      <section className="mt-8 rounded-[1.75rem] border border-[var(--line)] bg-white/80 p-5 text-[var(--ink)] shadow-[0_12px_40px_rgba(55,39,16,0.06)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+          Checkout canceled
+        </p>
+        <p className="mt-2 text-sm leading-6 text-black/68">
+          Your purchase was canceled. You can start checkout again whenever
+          you&apos;re ready.
+        </p>
+      </section>
+    );
+  }
+
   return null;
 }

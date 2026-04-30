@@ -6,7 +6,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { getAccessibleProductsTable } from "@/lib/account";
 import {
+  PRODUCT_SELECT_FIELDS,
   buildOpportunities,
   formatCurrency,
   formatScore,
@@ -18,6 +20,7 @@ import { createClient } from "../../../../utils/supabase/client";
 export default function ProductDetailPage() {
   const params = useParams<{ slug: string }>();
   const [product, setProduct] = useState<ProductOpportunity | null>(null);
+  const [productTable, setProductTable] = useState("products");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -40,11 +43,27 @@ export default function ProductDetailPage() {
         return;
       }
 
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (sessionError) {
+        setError(sessionError.message);
+        setLoading(false);
+        return;
+      }
+
+      const activeTable = getAccessibleProductsTable(
+        sessionData.session?.user ?? null,
+      );
+      setProductTable(activeTable);
+
       const { data, error: supabaseError } = await supabase
-        .from("products")
-        .select(
-          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score, ai_summary",
-        );
+        .from(activeTable)
+        .select(PRODUCT_SELECT_FIELDS);
 
       if (!isMounted) {
         return;
@@ -125,7 +144,7 @@ export default function ProductDetailPage() {
       }
 
       const { error: updateError } = await supabase
-        .from("products")
+        .from(productTable)
         .update({ ai_summary: payload.summary })
         .eq("product_name", product.productName);
 

@@ -1,7 +1,9 @@
 "use client";
 
 import AppHeader from "@/components/AppHeader";
+import { getAccessibleProductsTable } from "@/lib/account";
 import {
+  PRODUCT_SELECT_FIELDS,
   buildOpportunities,
   formatCurrency,
   formatScore,
@@ -65,11 +67,10 @@ export default function WatchlistPage() {
       setWatchlistSlugs(getWatchlist(activeUser).map((entry) => entry.slug));
       setWatchlistLimit(getWatchlistLimit(activeUser));
 
+      const productsTable = getAccessibleProductsTable(activeUser);
       const { data, error: productsError } = await supabase
-        .from("products")
-        .select(
-          "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score, ai_summary",
-        );
+        .from(productsTable)
+        .select(PRODUCT_SELECT_FIELDS);
 
       if (!isMounted) {
         return;

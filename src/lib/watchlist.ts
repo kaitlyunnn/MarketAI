@@ -1,7 +1,9 @@
 import { type User } from "@supabase/supabase-js";
 
+import { isProUser } from "./account";
+
 export const FREE_WATCHLIST_LIMIT = 3;
-export const PRO_WATCHLIST_LIMIT = 25;
+export const PRO_WATCHLIST_LIMIT = 10;
 
 export type WatchlistEntry = {
   slug: string;
@@ -38,10 +40,7 @@ export function getWatchlist(user: User | null | undefined): WatchlistEntry[] {
 }
 
 export function getWatchlistLimit(user: User | null | undefined) {
-  const metadata = user?.user_metadata as Record<string, unknown> | undefined;
-  const plan = metadata?.plan;
-
-  if (plan === "pro") {
+  if (isProUser(user)) {
     return PRO_WATCHLIST_LIMIT;
   }
 

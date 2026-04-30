@@ -11,6 +11,11 @@ const DEFAULT_PRODUCT = {
 
 let stripeClient: Stripe | null = null;
 
+type CheckoutRequestBody = {
+  email?: string;
+  userId?: string;
+};
+
 function getStripeClient() {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
@@ -35,19 +40,16 @@ function getAppOrigin(request: NextRequest) {
   return request.nextUrl.origin;
 }
 
-function getConfiguredPurchaseUrl() {
-  const configuredPurchaseUrl =
-    process.env.STRIPE_PAYMENT_LINK_URL ??
-    process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL;
-
-  return configuredPurchaseUrl?.trim() || null;
-}
-
 export async function POST(request: NextRequest) {
-  const configuredPurchaseUrl = getConfiguredPurchaseUrl();
+  const body = (await request.json().catch(() => ({}))) as CheckoutRequestBody;
+  const email = body.email?.trim();
+  const userId = body.userId?.trim();
 
-  if (configuredPurchaseUrl) {
-    return NextResponse.json({ url: configuredPurchaseUrl });
+  if (!email || !userId) {
+    return NextResponse.json(
+      { error: "You must be signed in before starting checkout." },
+      { status: 400 },
+    );
   }
 
   const stripe = getStripeClient();
@@ -68,6 +70,18 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "subscription",
+      customer_email: email,
+      client_reference_id: userId,
+      metadata: {
+        userId,
+        email,
+      },
+      subscription_data: {
+        metadata: {
+          userId,
+          email,
+        },
+      },
       line_items: [
         {
           price_data: {
@@ -84,7 +98,7 @@ export async function POST(request: NextRequest) {
           quantity: 1,
         },
       ],
-      success_url: `${appOrigin}/?checkout=success`,
+      success_url: `${appOrigin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appOrigin}/?checkout=canceled`,
     });
 

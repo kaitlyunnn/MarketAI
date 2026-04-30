@@ -8,6 +8,9 @@ export type ProductRow = {
   ai_summary?: string | null;
 };
 
+export const PRODUCT_SELECT_FIELDS =
+  "product_name, amazon_price, supplier_price, competition_count, tiktok_mentions, google_trends_score, ai_summary";
+
 export type ProductOpportunity = {
   id: string;
   slug: string;
