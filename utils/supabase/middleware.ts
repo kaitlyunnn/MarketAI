@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from "next/server";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-export function updateSession(request: NextRequest) {
+export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request: {
       headers: request.headers,
@@ -32,7 +32,11 @@ export function updateSession(request: NextRequest) {
     },
   });
 
-  void supabase.auth.getUser();
+  const { data: sessionData } = await supabase.auth.getSession();
+
+  if (sessionData.session) {
+    await supabase.auth.getUser();
+  }
 
   return supabaseResponse;
 }

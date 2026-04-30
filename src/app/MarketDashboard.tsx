@@ -1,9 +1,10 @@
 "use client";
 
-import Image from "next/image";
+import AuthStatusNotice from "@/components/AuthStatusNotice";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import AppHeader from "@/components/AppHeader";
 import {
   buildOpportunities,
   formatCurrency,
@@ -19,11 +20,45 @@ type SortOption =
   | "lowest-competition"
   | "most-trending";
 
+function getProductInsight(product: ProductOpportunity) {
+  const competition = getCompetitionLabel(
+    product.competitionScore,
+  ).toLowerCase();
+  const strongMargin = product.profitMargin >= 100;
+  const solidMargin = product.profitMargin >= 50;
+  const highTrend = product.trendScore >= 70;
+  const mediumTrend = product.trendScore >= 45;
+
+  if (strongMargin && competition === "low") {
+    return "Strong margin with low competition - a solid product to test.";
+  }
+
+  if (highTrend && competition !== "high") {
+    return "Good demand with manageable competition - worth testing early.";
+  }
+
+  if (competition === "low" && !strongMargin) {
+    return "Low competition and affordable sourcing make this beginner-friendly.";
+  }
+
+  if (solidMargin && mediumTrend) {
+    return "Healthy margins and steady demand give this product real potential.";
+  }
+
+  if (competition === "medium") {
+    return "Balanced demand and competition make this a smart test candidate.";
+  }
+
+  return "A promising product to validate before the category gets crowded.";
+}
+
 export default function MarketDashboard() {
   const productsPerPage = 10;
   const [products, setProducts] = useState<ProductOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("opportunity");
   const [currentPage, setCurrentPage] = useState(1);
@@ -74,6 +109,47 @@ export default function MarketDashboard() {
     };
   }, []);
 
+  async function handleCheckout() {
+    setCheckoutLoading(true);
+    setCheckoutError(null);
+
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+      });
+
+      const text = await response.text();
+      let body: { url?: string; error?: string } | null = null;
+
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(
+          `Checkout response was not valid JSON: ${text || "<empty response>"}`,
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          body?.error ||
+            `Checkout request failed with status ${response.status}`,
+        );
+      }
+
+      if (!body?.url) {
+        throw new Error(body?.error || "Unable to create checkout session.");
+      }
+
+      window.location.href = body.url;
+    } catch (error) {
+      setCheckoutError(
+        error instanceof Error ? error.message : "Checkout failed.",
+      );
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }
+
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredProducts = products
     .filter((product) =>
@@ -101,109 +177,116 @@ export default function MarketDashboard() {
     (safeCurrentPage - 1) * productsPerPage,
     safeCurrentPage * productsPerPage,
   );
-  const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
+  const pageNumbers = Array.from(
+    { length: totalPages },
+    (_, index) => index + 1,
+  );
 
   const topThree = filteredProducts.slice(0, 3);
   const bestProduct = topThree[0];
-  const highestTrend = products.length
-    ? Math.max(...products.map((product) => product.trendScore))
-    : 0;
-  const averageProfitMargin = products.length
-    ? products.reduce((sum, product) => sum + product.profitMargin, 0) /
-      products.length
-    : 0;
-  const averageCompetitionScore = products.length
-    ? products.reduce((sum, product) => sum + product.competitionScore, 0) /
-      products.length
-    : 0;
-
   return (
     <main className="min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-black/6 bg-[rgba(252,248,241,0.84)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 sm:px-10 lg:px-12">
-          <div className="flex items-center gap-3">
-            <div className="overflow-hidden rounded-xl shadow-[0_12px_24px_rgba(27,26,24,0.18)]">
-              <Image
-                src="/marketai-logo.png"
-                alt="MarketAI logo"
-                width={44}
-                height={44}
-                className="h-11 w-11 object-cover"
-                priority
-              />
-            </div>
-            <div>
-              <p className="text-lg font-semibold tracking-[-0.03em] text-[var(--ink)]">
-                MarketAI
-              </p>
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-                Product research
-              </p>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader />
 
       <section className="mx-auto max-w-7xl px-6 pb-12 pt-6 sm:px-10 lg:px-12">
-        <section className="relative overflow-hidden rounded-[2rem] border border-white/55 bg-[var(--panel)] px-6 py-10 shadow-[0_30px_80px_rgba(59,40,13,0.12)] sm:px-10 lg:px-12 lg:py-14">
-          <div className="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top_right,_rgba(241,171,76,0.28),_transparent_45%)]" />
-          <div className="relative grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
-            <div className="space-y-7">
-              <p className="inline-flex rounded-full border border-[var(--line)] bg-white/75 px-4 py-2 text-sm font-medium text-black/70">
-                Stop guessing what to sell next
+        <AuthStatusNotice />
+
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/55 bg-[var(--panel)] px-6 py-8 shadow-[0_30px_80px_rgba(59,40,13,0.12)] sm:px-10 sm:py-10 lg:px-12 lg:py-12">
+          <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] lg:items-center lg:gap-12">
+            <div className="flex min-w-0 flex-col gap-8">
+              <p className="inline-flex self-start rounded-full border border-[var(--line)] bg-white/75 px-4 py-2 text-sm font-medium text-black/70">
+                Product opportunities, ranked
               </p>
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.05em] text-balance sm:text-6xl lg:text-7xl">
-                  Find winning ecommerce products before the market catches on.
+                  Find winning ecommerce products early.
                 </h1>
                 <p className="max-w-3xl text-lg leading-8 text-black/68 sm:text-xl">
-                  MarketAI helps ecommerce sellers stop guessing. It ranks
-                  products by virality, profit, and competition so users can
-                  quickly find products worth testing.
+                  MarketAI helps ecommerce sellers discover high-potential
+                  products by analyzing demand, profit margin, and competition
+                  signals in one place.
                 </p>
+
+                <div className="hidden mt-6 flex-col gap-4 sm:flex-row sm:items-center">
+                  <button
+                    type="button"
+                    onClick={handleCheckout}
+                    disabled={checkoutLoading}
+                    className="inline-flex items-center justify-center rounded-full bg-[var(--ink)] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {checkoutLoading
+                      ? "Preparing checkout..."
+                      : "Upgrade to MarketAI Pro – $19.99"}
+                  </button>
+                  <p className="text-sm text-black/70">
+                    Secure one-time checkout powered by Stripe. You can review
+                    payment details before completing purchase.
+                  </p>
+                </div>
+
+                {checkoutError ? (
+                  <p className="hidden rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">
+                    {checkoutError}
+                  </p>
+                ) : null}
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <article className="rounded-3xl border border-[var(--line)] bg-white/80 p-5">
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
-                    Trend
-                  </p>
-                  <p className="mt-3 text-3xl font-semibold">
-                    {loading ? "--" : formatScore(highestTrend)}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-black/60">
-                    Highest live trend score across TikTok mentions and Google
-                    Trends.
-                  </p>
-                </article>
-                <article className="rounded-3xl border border-[var(--line)] bg-white/80 p-5">
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
-                    Avg margin
-                  </p>
-                  <p className="mt-3 text-3xl font-semibold">
-                    {loading ? "--" : formatCurrency(averageProfitMargin)}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-black/60">
-                    Average profit margin using amazon price minus supplier
-                    price.
-                  </p>
-                </article>
-                <article className="rounded-3xl border border-[var(--line)] bg-white/80 p-5">
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
-                    Competition
-                  </p>
-                  <p className="mt-3 text-3xl font-semibold">
-                    {loading ? "--" : formatScore(averageCompetitionScore)}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-black/60">
-                    Higher scores mean fewer sellers are competing on the same
-                    product.
-                  </p>
-                </article>
-              </div>
+              <section className="rounded-[1.5rem] border border-[var(--line)] bg-white/55 p-5 shadow-[0_16px_40px_rgba(49,33,10,0.04)] sm:p-6">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                  How it works
+                </p>
+                <div className="mt-5 grid gap-4 md:grid-cols-3 md:gap-0">
+                  {[
+                    {
+                      step: "01",
+                      title: "Analyze data",
+                      description:
+                        "We evaluate each product using trend, pricing, and competition data.",
+                    },
+                    {
+                      step: "02",
+                      title: "Estimate profit",
+                      description:
+                        "We compare selling price and supplier cost to calculate margins.",
+                    },
+                    {
+                      step: "03",
+                      title: "Rank products",
+                      description:
+                        "Products are scored and ranked so users can quickly spot what is worth testing.",
+                    },
+                  ].map((item, index) => (
+                    <div
+                      key={item.step}
+                      className={`relative space-y-2.5 md:px-5 ${
+                        index > 0
+                          ? "border-t border-[var(--line)] pt-4 md:border-l md:border-t-0 md:pt-0"
+                          : ""
+                      } ${index === 0 ? "md:pl-0" : ""} ${
+                        index === 2 ? "md:pr-0" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                          {item.step}
+                        </span>
+                        {index < 2 ? (
+                          <span className="hidden h-px flex-1 bg-[var(--line)] md:block" />
+                        ) : null}
+                      </div>
+                      <h3 className="text-sm font-semibold tracking-[-0.02em] text-[var(--ink)]">
+                        {item.title}
+                      </h3>
+                      <p className="max-w-xs text-sm leading-6 text-black/60">
+                        {item.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
 
-            <aside className="rounded-[1.75rem] bg-[var(--ink)] p-6 text-white shadow-[0_30px_90px_rgba(19,18,17,0.28)]">
+            <aside className="self-center rounded-[1.75rem] bg-[var(--ink)] p-6 text-white shadow-[0_30px_90px_rgba(19,18,17,0.28)] lg:p-7">
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/55">
                 This Week&apos;s Winning Product
               </p>
@@ -275,9 +358,7 @@ export default function MarketDashboard() {
             <p className="text-sm font-semibold uppercase tracking-[0.22em]">
               Error loading products
             </p>
-            <p className="mt-2 text-sm leading-6">
-              {error}
-            </p>
+            <p className="mt-2 text-sm leading-6">{error}</p>
             <p className="mt-2 text-sm leading-6 text-red-800/80">
               Check your `NEXT_PUBLIC_SUPABASE_URL`,
               `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and table permissions for
@@ -293,11 +374,12 @@ export default function MarketDashboard() {
                 Best Opportunities Right Now
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
-                Top 3 Trending Products
+                Top 3 Winning Products
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-black/60">
-              Ranked by profit potential, competition, and real-time demand signals.
+              Ranked by profit potential, competition, and real-time demand
+              signals.
             </p>
           </div>
 
@@ -324,7 +406,7 @@ export default function MarketDashboard() {
               {topThree.map((product, index) => (
                 <article
                   key={product.id}
-                  className="rounded-[1.75rem] border border-[var(--line)] bg-white/80 p-6 shadow-[0_22px_60px_rgba(49,33,10,0.08)]"
+                  className="flex h-full flex-col rounded-[1.75rem] border border-[var(--line)] bg-white/80 p-6 shadow-[0_22px_60px_rgba(49,33,10,0.08)]"
                 >
                   <div className="flex items-center justify-between gap-4">
                     <p className="rounded-full bg-[var(--highlight)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ink)]">
@@ -337,38 +419,36 @@ export default function MarketDashboard() {
                   <h3 className="mt-5 text-2xl font-semibold tracking-[-0.03em]">
                     {product.productName}
                   </h3>
-                  <p className="mt-3 text-sm leading-7 text-black/62">
-                    Amazon {formatCurrency(product.amazonPrice)} - Supplier{" "}
-                    {formatCurrency(product.supplierPrice)} = Margin{" "}
-                    {formatCurrency(product.profitMargin)}
+                  <p className="mt-3 min-h-12 text-sm leading-6 text-black/62">
+                    {getProductInsight(product)}
                   </p>
                   <div className="mt-6 grid grid-cols-3 gap-3 text-sm">
                     <div className="rounded-2xl bg-[var(--soft)] p-3">
                       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">
                         Trend
                       </p>
-                      <p className="mt-2 text-xl font-semibold">
+                      <p className="mt-2 text-xl font-semibold leading-none">
                         {formatScore(product.trendScore)}
                       </p>
                     </div>
                     <div className="rounded-2xl bg-[var(--soft)] p-3">
                       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">
-                        Margin
+                        Profit
                       </p>
-                      <p className="mt-2 text-xl font-semibold">
+                      <p className="mt-2 text-xl font-semibold leading-none">
                         {formatCurrency(product.profitMargin)}
                       </p>
                     </div>
-                  <div className="rounded-2xl bg-[var(--soft)] p-3">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">
-                      Competition
-                    </p>
-                    <p className="mt-2 text-xl font-semibold">
-                      {getCompetitionLabel(product.competitionScore)}
-                    </p>
+                    <div className="rounded-2xl bg-[var(--soft)] p-3">
+                      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">
+                        Comp
+                      </p>
+                      <p className="mt-2 break-words text-lg font-semibold leading-tight">
+                        {getCompetitionLabel(product.competitionScore)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </article>
+                </article>
               ))}
             </div>
           ) : (
@@ -377,6 +457,84 @@ export default function MarketDashboard() {
               table and they will appear here.
             </div>
           )}
+
+          <section className="relative mt-8 overflow-hidden rounded-[2rem] border border-[var(--line)] bg-[linear-gradient(135deg,rgba(248,243,234,0.96),rgba(243,201,134,0.28))] p-6 shadow-[0_28px_80px_rgba(58,39,12,0.12)] sm:p-8">
+            <div className="pointer-events-none absolute -right-12 top-0 h-36 w-36 rounded-full bg-white/45 blur-3xl" />
+            <div className="pointer-events-none absolute bottom-0 left-0 h-32 w-32 rounded-full bg-[var(--highlight)]/30 blur-3xl" />
+            <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="rounded-full border border-white/70 bg-white/75 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[var(--ink)]">
+                    MarketAI Pro
+                  </p>
+                  <p className="text-sm font-medium text-black/58">
+                    Monthly recurring purchase
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <h3 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] text-[var(--ink)] sm:text-4xl">
+                    Unlock the full product library for $6.99 per month
+                  </h3>
+                  <p className="max-w-2xl text-sm leading-7 text-black/68 sm:text-base">
+                    Get deeper access to MarketAI with a polished Pro upgrade
+                    built for sellers who want more ideas, more saves, and a
+                    head start on what is working next.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    "Full product library access",
+                    "Expanded wishlist capacity",
+                    "Early access to ecommerce product case studies",
+                  ].map((benefit) => (
+                    <div
+                      key={benefit}
+                      className="rounded-[1.4rem] border border-white/65 bg-white/72 p-4 shadow-[0_12px_30px_rgba(58,39,12,0.06)]"
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+                        Pro perk
+                      </p>
+                      <p className="mt-3 text-sm font-medium leading-6 text-[var(--ink)]">
+                        {benefit}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative rounded-[1.75rem] border border-[var(--line)] bg-[var(--ink)] p-6 text-white shadow-[0_24px_70px_rgba(27,26,24,0.24)] sm:p-7 lg:max-w-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/55">
+                  Upgrade today
+                </p>
+                <div className="mt-4 flex items-end gap-2">
+                  <span className="text-4xl font-semibold tracking-[-0.05em]">
+                    $6.99
+                  </span>
+                  <span className="pb-1 text-sm text-white/55">monthly</span>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-white/72">
+                  Secure Stripe checkout. Review your payment details before you
+                  complete the purchase.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCheckout}
+                  disabled={checkoutLoading}
+                  className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--highlight)] px-6 py-3.5 text-sm font-semibold text-[var(--ink)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(243,201,134,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {checkoutLoading
+                    ? "Preparing checkout..."
+                    : "Start Pro Subscription"}
+                </button>
+
+                {checkoutError ? (
+                  <p className="mt-4 rounded-2xl border border-red-300/30 bg-red-50 px-4 py-3 text-sm leading-6 text-red-900">
+                    {checkoutError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </section>
         </section>
 
         <section className="mt-10 rounded-[2rem] border border-[var(--line)] bg-white/70 p-6 shadow-[0_22px_70px_rgba(47,33,12,0.08)] sm:p-8">
@@ -456,7 +614,7 @@ export default function MarketDashboard() {
                     <Link
                       key={product.id}
                       href={`/products/${product.slug}`}
-                      className="grid gap-4 px-5 py-5 md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
+                      className="grid cursor-pointer gap-4 px-5 py-5 transition duration-200 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_18px_40px_rgba(49,33,10,0.08)] md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
                     >
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
@@ -469,22 +627,26 @@ export default function MarketDashboard() {
                           {product.productName}
                         </h3>
                         <p className="mt-2 text-sm leading-6 text-black/60">
-                          Amazon {formatCurrency(product.amazonPrice)} - Supplier{" "}
-                          {formatCurrency(product.supplierPrice)}
+                          Amazon {formatCurrency(product.amazonPrice)} -
+                          Supplier {formatCurrency(product.supplierPrice)}
                         </p>
                         <p className="mt-3 text-sm font-medium text-black/70 md:hidden">
-                          Trend: {formatScore(product.trendScore)} - Opportunity:{" "}
-                          {formatScore(product.opportunityScore)}
+                          Trend: {formatScore(product.trendScore)} -
+                          Opportunity: {formatScore(product.opportunityScore)}
                         </p>
                       </div>
 
                       <div className="text-sm text-black/68">
-                        <p className="font-semibold text-black md:hidden">Margin</p>
+                        <p className="font-semibold text-black md:hidden">
+                          Margin
+                        </p>
                         <p>{formatCurrency(product.profitMargin)}</p>
                       </div>
 
                       <div className="text-sm text-black/68">
-                        <p className="font-semibold text-black md:hidden">Trend</p>
+                        <p className="font-semibold text-black md:hidden">
+                          Trend
+                        </p>
                         <p>{formatScore(product.trendScore)}</p>
                       </div>
 

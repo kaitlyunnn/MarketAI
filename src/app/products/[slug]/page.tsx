@@ -1,5 +1,7 @@
 "use client";
 
+import AppHeader from "@/components/AppHeader";
+import WatchlistButton from "@/components/WatchlistButton";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -82,14 +84,29 @@ export default function ProductDetailPage() {
       return;
     }
 
-    if (product.aiSummary) {
-      return;
-    }
-
     setSummaryLoading(true);
     setSummaryError(null);
 
     try {
+      const supabase = createClient();
+
+      if (!supabase) {
+        throw new Error(
+          "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
+        );
+      }
+
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw new Error(sessionError.message);
+      }
+
+      if (!sessionData.session) {
+        throw new Error("Please log in before generating and saving AI summaries.");
+      }
+
       const response = await fetch("/api/generate-summary", {
         method: "POST",
         headers: {
@@ -105,14 +122,6 @@ export default function ProductDetailPage() {
 
       if (!response.ok || !payload.summary) {
         throw new Error(payload.error ?? "Failed to generate AI summary.");
-      }
-
-      const supabase = createClient();
-
-      if (!supabase) {
-        throw new Error(
-          "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
-        );
       }
 
       const { error: updateError } = await supabase
@@ -141,6 +150,7 @@ export default function ProductDetailPage() {
 
   return (
     <main className="min-h-screen">
+      <AppHeader />
       <section className="mx-auto max-w-5xl px-6 pb-12 pt-6 sm:px-10 lg:px-12">
         <div className="flex justify-end">
           <Link
@@ -185,6 +195,7 @@ export default function ProductDetailPage() {
                 margin opportunity.
               </p>
             </section>
+            <WatchlistButton productSlug={product.slug} />
 
             <section className="mt-8 grid gap-5 md:grid-cols-2">
               <article className="rounded-[1.75rem] border border-[var(--line)] bg-white/85 p-6 shadow-[0_22px_60px_rgba(49,33,10,0.08)]">
@@ -298,6 +309,16 @@ export default function ProductDetailPage() {
                   </button>
                 </>
               )}
+              {product.aiSummary ? (
+                <button
+                  type="button"
+                  onClick={handleGenerateSummary}
+                  disabled={summaryLoading}
+                  className="mt-5 rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {summaryLoading ? "Regenerating summary..." : "Regenerate AI Summary"}
+                </button>
+              ) : null}
               {summaryError ? (
                 <p className="mt-4 text-sm leading-6 text-red-700">
                   {summaryError}
