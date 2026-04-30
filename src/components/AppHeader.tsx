@@ -28,7 +28,15 @@ export default function AppHeader() {
           </div>
         </Link>
 
-        <AuthControls />
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            href="/case-studies"
+            className="rounded-full border border-[var(--line)] bg-white/60 px-4 py-2 text-sm font-medium text-[var(--ink)] transition hover:bg-white"
+          >
+            Case Studies
+          </Link>
+          <AuthControls />
+        </div>
       </div>
     </header>
   );

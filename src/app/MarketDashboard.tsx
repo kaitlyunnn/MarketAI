@@ -1,10 +1,12 @@
 "use client";
 
+import { type User } from "@supabase/supabase-js";
 import AuthStatusNotice from "@/components/AuthStatusNotice";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import AppHeader from "@/components/AppHeader";
+import { isProUser } from "@/lib/account";
 import {
   buildOpportunities,
   formatCurrency,
@@ -53,7 +55,10 @@ function getProductInsight(product: ProductOpportunity) {
 }
 
 export default function MarketDashboard() {
+  const freePlanProductLimit = 15;
   const productsPerPage = 10;
+  const [supabase] = useState(() => createClient());
+  const [user, setUser] = useState<User | null>(null);
   const [products, setProducts] = useState<ProductOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,13 +69,47 @@ export default function MarketDashboard() {
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
+    let isMounted = true;
+
+    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (sessionError) {
+        setCheckoutError(sessionError.message);
+        return;
+      }
+
+      setUser(data.session?.user ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function fetchProducts() {
       setLoading(true);
       setError(null);
-
-      const supabase = createClient();
 
       if (!supabase) {
         setError(
@@ -107,15 +146,43 @@ export default function MarketDashboard() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [supabase]);
 
   async function handleCheckout() {
+    if (!supabase) {
+      setCheckoutError(
+        "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
+      );
+      return;
+    }
+
     setCheckoutLoading(true);
     setCheckoutError(null);
 
     try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      const activeUser = sessionData.session?.user ?? null;
+
+      if (!activeUser?.email) {
+        window.location.href = "/auth?mode=signup&reason=pro-purchase";
+        return;
+      }
+
       const response = await fetch("/api/checkout", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: activeUser.email,
+          userId: activeUser.id,
+        }),
       });
 
       const text = await response.text();
@@ -168,6 +235,7 @@ export default function MarketDashboard() {
           return b.opportunityScore - a.opportunityScore;
       }
     });
+  const isProMember = isProUser(user);
   const totalPages = Math.max(
     1,
     Math.ceil(filteredProducts.length / productsPerPage),
@@ -378,8 +446,9 @@ export default function MarketDashboard() {
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-black/60">
-              Ranked by profit potential, competition, and real-time demand
-              signals.
+              {isProMember
+                ? "Ranked by profit potential, competition, and real-time demand signals across the full product library."
+                : "Ranked by profit potential, competition, and real-time demand signals"}
             </p>
           </div>
 
@@ -548,7 +617,9 @@ export default function MarketDashboard() {
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-black/60">
-              Click on a product to view its expanded details page
+              {isProMember
+                ? "Pro users can browse the full ranked product library."
+                : "Free plan users can browse up to 15 products. Upgrade to Pro to unlock the full list."}
             </p>
           </div>
 
@@ -610,68 +681,122 @@ export default function MarketDashboard() {
                 </div>
 
                 <div className="divide-y divide-[var(--line)] bg-white/85">
-                  {paginatedProducts.map((product, index) => (
-                    <Link
-                      key={product.id}
-                      href={`/products/${product.slug}`}
-                      className="grid cursor-pointer gap-4 px-5 py-5 transition duration-200 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_18px_40px_rgba(49,33,10,0.08)] md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
-                          {(safeCurrentPage - 1) * productsPerPage + index + 1}
+                  {paginatedProducts.map((product, index) => {
+                    const absoluteIndex =
+                      (safeCurrentPage - 1) * productsPerPage + index;
+                    const isLocked =
+                      !isProMember && absoluteIndex >= freePlanProductLimit;
+
+                    const row = (
+                      <div
+                        className={`grid gap-4 px-5 py-5 transition duration-200 md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center ${
+                          isLocked
+                            ? "relative overflow-hidden"
+                            : "cursor-pointer hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_18px_40px_rgba(49,33,10,0.08)]"
+                        }`}
+                      >
+                        {isLocked ? (
+                          <>
+                            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(248,243,234,0.2),rgba(248,243,234,0.72))]" />
+                            <div className="absolute right-5 top-5 rounded-full border border-amber-300 bg-[linear-gradient(135deg,#f6d365,#f3b54a)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-950 shadow-[0_10px_18px_rgba(224,168,36,0.24)]">
+                              Pro
+                            </div>
+                          </>
+                        ) : null}
+
+                        <div
+                          className={
+                            isLocked
+                              ? "pointer-events-none col-span-full grid gap-4 blur-[7px] opacity-45 saturate-50 md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
+                              : "col-span-full grid gap-4 md:grid-cols-[72px_1.9fr_0.9fr_0.8fr_0.8fr_0.9fr] md:items-center"
+                          }
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white">
+                              {absoluteIndex + 1}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h3 className="text-lg font-semibold tracking-[-0.03em]">
+                              {product.productName}
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-black/60">
+                              Amazon {formatCurrency(product.amazonPrice)} -
+                              Supplier {formatCurrency(product.supplierPrice)}
+                            </p>
+                            <p className="mt-3 text-sm font-medium text-black/70 md:hidden">
+                              Trend: {formatScore(product.trendScore)} -
+                              Opportunity: {formatScore(product.opportunityScore)}
+                            </p>
+                          </div>
+
+                          <div className="text-sm text-black/68">
+                            <p className="font-semibold text-black md:hidden">
+                              Margin
+                            </p>
+                            <p>{formatCurrency(product.profitMargin)}</p>
+                          </div>
+
+                          <div className="text-sm text-black/68">
+                            <p className="font-semibold text-black md:hidden">
+                              Trend
+                            </p>
+                            <p>{formatScore(product.trendScore)}</p>
+                          </div>
+
+                          <div className="text-sm text-black/68">
+                            <p className="font-semibold text-black md:hidden">
+                              Competition
+                            </p>
+                            <p>{getCompetitionLabel(product.competitionScore)}</p>
+                          </div>
+
+                          <div className="text-sm text-black/68">
+                            <p className="font-semibold text-black md:hidden">
+                              Opportunity
+                            </p>
+                            <p className="font-semibold text-black">
+                              {formatScore(product.opportunityScore)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
 
-                      <div>
-                        <h3 className="text-lg font-semibold tracking-[-0.03em]">
-                          {product.productName}
-                        </h3>
-                        <p className="mt-2 text-sm leading-6 text-black/60">
-                          Amazon {formatCurrency(product.amazonPrice)} -
-                          Supplier {formatCurrency(product.supplierPrice)}
-                        </p>
-                        <p className="mt-3 text-sm font-medium text-black/70 md:hidden">
-                          Trend: {formatScore(product.trendScore)} -
-                          Opportunity: {formatScore(product.opportunityScore)}
-                        </p>
+                        {isLocked ? (
+                          <div className="relative z-10 md:col-[2/span_5]">
+                            <button
+                              type="button"
+                              onClick={handleCheckout}
+                              disabled={checkoutLoading}
+                              className="inline-flex items-center rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {checkoutLoading
+                                ? "Preparing checkout..."
+                                : "Unlock with Pro"}
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
+                    );
 
-                      <div className="text-sm text-black/68">
-                        <p className="font-semibold text-black md:hidden">
-                          Margin
-                        </p>
-                        <p>{formatCurrency(product.profitMargin)}</p>
-                      </div>
+                    if (isLocked) {
+                      return <div key={product.id}>{row}</div>;
+                    }
 
-                      <div className="text-sm text-black/68">
-                        <p className="font-semibold text-black md:hidden">
-                          Trend
-                        </p>
-                        <p>{formatScore(product.trendScore)}</p>
-                      </div>
-
-                      <div className="text-sm text-black/68">
-                        <p className="font-semibold text-black md:hidden">
-                          Competition
-                        </p>
-                        <p>{getCompetitionLabel(product.competitionScore)}</p>
-                      </div>
-
-                      <div className="text-sm text-black/68">
-                        <p className="font-semibold text-black md:hidden">
-                          Opportunity
-                        </p>
-                        <p className="font-semibold text-black">
-                          {formatScore(product.opportunityScore)}
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
+                    return (
+                      <Link key={product.id} href={`/products/${product.slug}`}>
+                        {row}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
               <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
                 <div className="text-sm text-black/55">
                   Page {safeCurrentPage} of {totalPages}
+                  {!isProMember
+                    ? ` `
+                    : ""}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -720,6 +845,40 @@ export default function MarketDashboard() {
               The `products` table is reachable, but it returned no rows.
             </div>
           )}
+        </section>
+
+        <section className="mt-8 rounded-[2rem] border border-[var(--line)] bg-white/76 p-6 shadow-[0_22px_70px_rgba(47,33,12,0.08)] sm:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+                Case Studies
+              </p>
+              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
+                Study winning ecommerce brands in a growing research library
+              </h2>
+              <p className="mt-4 text-sm leading-7 text-black/62 sm:text-base">
+                Explore focused breakdowns of standout brands, see what made
+                them work, and use those lessons to sharpen your own product and
+                positioning decisions.
+              </p>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-[var(--line)] bg-[linear-gradient(135deg,rgba(248,243,234,0.96),rgba(243,201,134,0.22))] p-5 shadow-[0_12px_30px_rgba(58,39,12,0.06)] lg:min-w-[20rem]">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+                Included in MarketAI
+              </p>
+              <p className="mt-3 text-sm leading-6 text-black/65">
+                Browse the case study library to see premium brand examples and
+                lock in sharper ideas faster.
+              </p>
+              <Link
+                href="/case-studies"
+                className="mt-5 inline-flex items-center rounded-full bg-[var(--ink)] px-5 py-3 text-sm font-semibold !text-white transition hover:opacity-90"
+              >
+                Browse Case Studies
+              </Link>
+            </div>
+          </div>
         </section>
       </section>
     </main>
