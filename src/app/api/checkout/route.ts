@@ -76,6 +76,12 @@ export async function POST(request: NextRequest) {
         userId,
         email,
       },
+      subscription_data: {
+        metadata: {
+          userId,
+          email,
+        },
+      },
       line_items: [
         {
           price_data: {

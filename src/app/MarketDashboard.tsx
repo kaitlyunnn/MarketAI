@@ -7,11 +7,7 @@ import { useEffect, useState } from "react";
 
 import AppHeader from "@/components/AppHeader";
 import AuthStatusNotice from "@/components/AuthStatusNotice";
-import {
-  PRO_PLAN,
-  getAccessibleProductsTable,
-  isProUser,
-} from "@/lib/account";
+import { getAccessibleProductsTable, isProUser } from "@/lib/account";
 import {
   PRODUCT_SELECT_FIELDS,
   buildOpportunities,
@@ -71,9 +67,7 @@ export default function MarketDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [processedCheckoutSessionId, setProcessedCheckoutSessionId] = useState<
-    string | null
-  >(null);
+  const [checkoutProcessing, setCheckoutProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("opportunity");
   const [currentPage, setCurrentPage] = useState(1);
@@ -157,93 +151,70 @@ export default function MarketDashboard() {
     };
   }, [supabase, user]);
 
-  const checkoutState = searchParams.get("checkout");
-  const checkoutSessionId = searchParams.get("session_id");
-
   useEffect(() => {
-    if (
-      !supabase ||
-      !user ||
-      checkoutState !== "success" ||
-      !checkoutSessionId ||
-      processedCheckoutSessionId === checkoutSessionId
-    ) {
+    if (!supabase) {
+      return;
+    }
+
+    const checkoutState = searchParams.get("checkout");
+
+    if (checkoutState !== "success") {
+      setCheckoutProcessing(false);
       return;
     }
 
     let isMounted = true;
+    let attempts = 0;
+    const maxAttempts = 8;
 
-    async function confirmCheckout() {
-      setCheckoutLoading(true);
+    async function waitForWebhookUpgrade() {
+      setCheckoutProcessing(true);
       setCheckoutError(null);
 
-      try {
-        const response = await fetch("/api/checkout/confirm", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            sessionId: checkoutSessionId,
-            userId: user.id,
-          }),
-        });
-        const body = (await response.json()) as { pro?: boolean; error?: string };
+      while (isMounted && attempts < maxAttempts) {
+        attempts += 1;
 
-        if (!response.ok || !body.pro) {
-          throw new Error(body.error || "Unable to confirm your purchase.");
-        }
-
-        const { data: updatedUserData, error: updateError } =
-          await supabase.auth.updateUser({
-            data: {
-              ...user.user_metadata,
-              plan: PRO_PLAN,
-            },
-          });
-
-        if (updateError) {
-          throw updateError;
-        }
+        const { data, error: refreshError } = await supabase.auth.refreshSession();
 
         if (!isMounted) {
           return;
         }
 
-        setUser(updatedUserData.user);
-        setProcessedCheckoutSessionId(checkoutSessionId);
-        router.replace("/?auth=upgraded");
-        router.refresh();
-      } catch (purchaseError) {
-        if (!isMounted) {
+        if (refreshError) {
+          setCheckoutError(refreshError.message);
+          setCheckoutProcessing(false);
           return;
         }
 
-        setCheckoutError(
-          purchaseError instanceof Error
-            ? purchaseError.message
-            : "Unable to confirm your purchase.",
-        );
-      } finally {
-        if (isMounted) {
-          setCheckoutLoading(false);
+        const refreshedUser = data.session?.user ?? null;
+        setUser(refreshedUser);
+
+        if (isProUser(refreshedUser)) {
+          setCheckoutProcessing(false);
+          router.replace("/?auth=upgraded");
+          router.refresh();
+          return;
         }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
+
+      if (!isMounted) {
+        return;
+      }
+
+      setCheckoutProcessing(false);
+      setCheckoutError(
+        "Your payment went through, but your Pro access is still syncing. Refresh in a moment if it does not appear automatically.",
+      );
     }
 
-    void confirmCheckout();
+    void waitForWebhookUpgrade();
 
     return () => {
       isMounted = false;
     };
-  }, [
-    checkoutSessionId,
-    checkoutState,
-    processedCheckoutSessionId,
-    router,
-    supabase,
-    user,
-  ]);
+  }, [router, searchParams, supabase]);
 
   async function handleCheckout() {
     if (!supabase) {
@@ -381,12 +352,12 @@ export default function MarketDashboard() {
                   <button
                     type="button"
                     onClick={handleCheckout}
-                    disabled={checkoutLoading || isProMember}
+                    disabled={checkoutLoading || checkoutProcessing || isProMember}
                     className="inline-flex items-center justify-center rounded-full bg-[var(--ink)] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isProMember
                       ? "Pro plan active"
-                      : checkoutLoading
+                      : checkoutLoading || checkoutProcessing
                         ? "Preparing checkout..."
                         : "Upgrade to MarketAI Pro - $6.99/month"}
                   </button>
@@ -700,10 +671,10 @@ export default function MarketDashboard() {
                   <button
                     type="button"
                     onClick={handleCheckout}
-                    disabled={checkoutLoading}
+                    disabled={checkoutLoading || checkoutProcessing}
                     className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--highlight)] px-6 py-3.5 text-sm font-semibold text-[var(--ink)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(243,201,134,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {checkoutLoading
+                    {checkoutLoading || checkoutProcessing
                       ? "Preparing checkout..."
                       : "Start Pro Subscription"}
                   </button>
