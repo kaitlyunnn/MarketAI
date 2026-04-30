@@ -35,12 +35,29 @@ function getAppOrigin(request: NextRequest) {
   return request.nextUrl.origin;
 }
 
+function getConfiguredPurchaseUrl() {
+  const configuredPurchaseUrl =
+    process.env.STRIPE_PAYMENT_LINK_URL ??
+    process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL;
+
+  return configuredPurchaseUrl?.trim() || null;
+}
+
 export async function POST(request: NextRequest) {
+  const configuredPurchaseUrl = getConfiguredPurchaseUrl();
+
+  if (configuredPurchaseUrl) {
+    return NextResponse.json({ url: configuredPurchaseUrl });
+  }
+
   const stripe = getStripeClient();
 
   if (!stripe) {
     return NextResponse.json(
-      { error: "Missing STRIPE_SECRET_KEY environment variable." },
+      {
+        error:
+          "Missing STRIPE_SECRET_KEY or STRIPE_PAYMENT_LINK_URL environment variable.",
+      },
       { status: 500 },
     );
   }
